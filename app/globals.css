@@ -1,26 +1,45 @@
 @import "tailwindcss";
 
+/* Anthroplanet Admin — same brand tokens as the user-frontend. */
+@theme {
+  --color-lagoon: #1d3b4f;
+  --color-lagoon-900: #122734;
+  --color-lagoon-700: #21455c;
+  --color-frost: #bbd1dc;
+  --color-frost-50: #f3f7f9;
+  --color-frost-100: #e6eef2;
+  --color-sandstone: #c2aa81;
+  --color-walnut: #6b513e;
+  --color-moss: #576f3f;
+  --color-moss-600: #4a6035;
+  --color-chestnut: #583319;
+  --color-marigold: #f3c43b;
+  --color-marigold-600: #e3b02a;
+
+  --color-background: #f4f7f8;
+  --color-foreground: #16242d;
+
+  --font-display: var(--font-fraunces), Georgia, serif;
+  --font-sans: var(--font-archivo), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  color-scheme: light;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+::selection {
+  background: var(--color-marigold);
+  color: var(--color-lagoon-900);
 }
