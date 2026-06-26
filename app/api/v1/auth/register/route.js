@@ -35,6 +35,14 @@ export async function POST(req) {
     await dbConnect();
     const { name, email, password } = parsed.data;
 
+    // Env-only Admin email DB me register nahi ho sakta (lockout/confusion se bachne ke liye).
+    if (
+      process.env.ADMIN_EMAIL &&
+      email.toLowerCase() === process.env.ADMIN_EMAIL.toLowerCase()
+    ) {
+      return json(req, { error: "Email already registered" }, { status: 409 });
+    }
+
     const existing = await User.findOne({ email });
     if (existing) {
       return json(req, { error: "Email already registered" }, { status: 409 });

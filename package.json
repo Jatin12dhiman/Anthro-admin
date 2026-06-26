@@ -3,12 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3001",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
+    "dev": "node api.js && next dev -p 3001",
+    "build": "node api.js && next build",
+    "start": "node api.js && next start",
+    "lint": "eslint",
+    "seed:blogs": "node scripts/seed-blogs.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1075.0",
+    "@aws-sdk/s3-request-presigner": "^3.1075.0",
     "bcryptjs": "^3.0.3",
     "jose": "^6.2.3",
     "jsonwebtoken": "^9.0.3",

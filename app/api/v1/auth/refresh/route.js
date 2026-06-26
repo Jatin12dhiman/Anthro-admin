@@ -24,12 +24,23 @@ export async function POST(req) {
       return res;
     }
 
-    await dbConnect();
-    const user = await User.findById(payload.sub).populate("role_ids", "name permissions");
-    if (!user || user.status === "banned") {
-      const res = json(req, { error: "User unavailable" }, { status: 401 });
-      clearSessionCookies(res);
-      return res;
+    let user;
+    if (process.env.ADMIN_EMAIL && payload.email === process.env.ADMIN_EMAIL) {
+      user = {
+        _id: "000000000000000000000000",
+        name: "System Admin",
+        email: process.env.ADMIN_EMAIL,
+        role_ids: [{ name: "Super Admin", permissions: { all: ["*"] } }],
+        status: "active",
+      };
+    } else {
+      await dbConnect();
+      user = await User.findById(payload.sub).populate("role_ids", "name permissions");
+      if (!user || user.status === "banned") {
+        const res = json(req, { error: "User unavailable" }, { status: 401 });
+        clearSessionCookies(res);
+        return res;
+      }
     }
 
     const res = json(req, { user: publicUser(user) });

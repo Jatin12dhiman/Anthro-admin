@@ -5,12 +5,13 @@ import { jwtVerify } from "jose";
  * anthro-admin — Central security middleware.
  *
  * Responsibilities:
- *  1. Rate limiting  — auth endpoints pe brute-force rokna (PRD: 5 req/15min/IP)
- *  2. JWT verify     — har protected /api/v1/* route pe token check
- *  3. User inject    — verified user info request headers mein pass karna
+ *  1. CORS headers   — har response pe CORS headers (preflight + normal)
+ *  2. Rate limiting  — auth endpoints pe brute-force rokna (PRD: 5 req/15min/IP)
+ *  3. JWT verify     — har protected /api/v1/* route pe token check
+ *  4. User inject    — verified user info request headers mein pass karna
  *
  * Flow:
- *  OPTIONS           → pass through (CORS preflight)
+ *  OPTIONS           → 204 with CORS headers (preflight)
  *  Auth routes POST  → rate limit check, then pass
  *  Public routes     → pass through (no token needed)
  *  /api/v1/*         → JWT verify → 401 ya pass with x-user-* headers
@@ -19,6 +20,13 @@ import { jwtVerify } from "jose";
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const ACCESS_COOKIE = "ap_access";
+
+const ALLOWED_ORIGINS = [
+  process.env.USER_FRONTEND_URL,
+  process.env.APP_BASE_URL,
+  "http://localhost:3000",
+  "http://localhost:3001",
+].filter(Boolean);
 
 // Auth endpoints jahan JWT nahi chahiye — apni security khud handle karte hain
 const AUTH_ENDPOINTS = [
@@ -30,6 +38,10 @@ const AUTH_ENDPOINTS = [
 
 // Public profile read — /api/v1/profile/[username] GET (not /me)
 const PUBLIC_PROFILE_RE = /^\/api\/v1\/profile\/(?!me(?:\/|$))[^/]+$/;
+
+// Public blog read — GET /api/v1/blogs (list) and /api/v1/blogs/:idOrSlug (single).
+// Mutations (POST/PATCH) and /blogs/:id/submit still go through JWT check below.
+const PUBLIC_BLOG_RE = /^\/api\/v1\/blogs(?:\/[^/]+)?$/;
 
 // ─── Rate Limiter (in-memory) ─────────────────────────────────────────────────
 //
@@ -82,18 +94,42 @@ async function verifyToken(token) {
 
 // ─── Response helpers ─────────────────────────────────────────────────────────
 
-function unauthorizedResponse(message = "Authentication required.") {
-  return NextResponse.json({ error: message }, { status: 401 });
+/** Build CORS headers based on the request origin. */
+function corsHeaders(req) {
+  const origin = req.headers.get("origin") || "";
+  const headers = {
+    "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    Vary: "Origin",
+  };
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+  return headers;
 }
 
-function rateLimitResponse(retryAfterSeconds) {
-  return NextResponse.json(
+/** Attach CORS headers to any NextResponse. */
+function withCors(req, res) {
+  const ch = corsHeaders(req);
+  for (const [k, v] of Object.entries(ch)) res.headers.set(k, v);
+  return res;
+}
+
+function unauthorizedResponse(req, message = "Authentication required.") {
+  const res = NextResponse.json({ error: message }, { status: 401 });
+  return withCors(req, res);
+}
+
+function rateLimitResponse(req, retryAfterSeconds) {
+  const res = NextResponse.json(
     { error: `Too many attempts. Try again in ${Math.ceil(retryAfterSeconds / 60)} minutes.` },
     {
       status: 429,
       headers: { "Retry-After": String(retryAfterSeconds) },
     }
   );
+  return withCors(req, res);
 }
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
@@ -102,9 +138,10 @@ export async function middleware(req) {
   const { pathname } = req.nextUrl;
   const method = req.method;
 
-  // 1. OPTIONS — CORS preflight, always allow
+  // 1. OPTIONS — CORS preflight → 204 with CORS headers
   if (method === "OPTIONS") {
-    return NextResponse.next();
+    const res = new NextResponse(null, { status: 204 });
+    return withCors(req, res);
   }
 
   // 2. Auth endpoints — rate limit POST, then pass through
@@ -115,15 +152,23 @@ export async function middleware(req) {
     if (method === "POST") {
       const ip = getClientIp(req);
       const { limited, retryAfterSeconds } = checkRateLimit(ip);
-      if (limited) return rateLimitResponse(retryAfterSeconds);
+      if (limited) return rateLimitResponse(req, retryAfterSeconds);
     }
     */
-    return NextResponse.next();
+    const res = NextResponse.next();
+    return withCors(req, res);
   }
 
   // 3. Public profile read — no auth needed
   if (PUBLIC_PROFILE_RE.test(pathname) && method === "GET") {
-    return NextResponse.next();
+    const res = NextResponse.next();
+    return withCors(req, res);
+  }
+
+  // 3b. Public blog read (list + single) — no auth needed for GET
+  if (PUBLIC_BLOG_RE.test(pathname) && method === "GET") {
+    const res = NextResponse.next();
+    return withCors(req, res);
   }
 
   // 4. All other /api/v1/* routes — JWT required
@@ -131,7 +176,7 @@ export async function middleware(req) {
     const token = req.cookies.get(ACCESS_COOKIE)?.value;
 
     if (!token) {
-      return unauthorizedResponse("No session found. Please log in.");
+      return unauthorizedResponse(req, "No session found. Please log in.");
     }
 
     let payload;
@@ -140,22 +185,30 @@ export async function middleware(req) {
     } catch (err) {
       const isExpired = err?.code === "ERR_JWT_EXPIRED";
       return unauthorizedResponse(
+        req,
         isExpired
           ? "Session expired. Please log in again."
           : "Invalid session token."
       );
     }
 
-    // Token valid — forward user info to route handlers via headers
+    // Token valid — forward user info to route handlers via request headers
     // Route handlers can read these without an extra DB round-trip
-    const res = NextResponse.next();
-    res.headers.set("x-user-id", String(payload.sub));
-    res.headers.set("x-user-email", String(payload.email || ""));
-    res.headers.set("x-user-roles", JSON.stringify(payload.roles || []));
-    return res;
+    const requestHeaders = new Headers(req.headers);
+    requestHeaders.set("x-user-id", String(payload.sub));
+    requestHeaders.set("x-user-email", String(payload.email || ""));
+    requestHeaders.set("x-user-roles", JSON.stringify(payload.roles || []));
+
+    const res = NextResponse.next({
+      request: {
+        headers: requestHeaders,
+      },
+    });
+    return withCors(req, res);
   }
 
-  return NextResponse.next();
+  const res = NextResponse.next();
+  return withCors(req, res);
 }
 
 export const config = {
