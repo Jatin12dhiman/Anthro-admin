@@ -6,9 +6,12 @@
     "dev": "next dev -p 3001",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "seed:blogs": "node scripts/seed-blogs.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1075.0",
+    "@aws-sdk/s3-request-presigner": "^3.1075.0",
     "bcryptjs": "^3.0.3",
     "jose": "^6.2.3",
     "jsonwebtoken": "^9.0.3",
